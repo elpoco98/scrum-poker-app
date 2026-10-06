@@ -1,0 +1,64 @@
+### Server testen
+GET http://localhost:3000
+
+### Session erstellen
+POST http://localhost:3000/sessions
+
+### Sessions anzeigen
+GET http://localhost:3000/sessions
+
+### Einzelne Session anzeigen
+# ID ersetzen
+GET http://localhost:3000/sessions/SESSION_ID
+
+### Beitreten
+# SESSION_ID ersetzen
+POST http://localhost:3000/sessions/SESSION_ID/join
+Content-Type: application/json
+
+{
+  "name": "Vincent"
+}
+
+### Vote abgeben
+# SESSION_ID und PARTICIPANT_ID ersetzen
+POST http://localhost:3000/sessions/SESSION_ID/vote
+Content-Type: application/json
+
+{
+  "participantId": "PARTICIPANT_ID",
+  "vote": "5"
+}
+
+### Aufdecken
+POST http://localhost:3000/sessions/SESSION_ID/reveal
+
+### Reset
+POST http://localhost:3000/sessions/SESSION_ID/reset
+
+### Deck wechseln
+PUT http://localhost:3000/sessions/SESSION_ID/deck
+Content-Type: application/json
+
+{
+  "deck": "tshirt"
+}
+
+### Heartbeat
+POST http://localhost:3000/sessions/SESSION_ID/heartbeat
+Content-Type: application/json
+
+{
+  "participantId": "PARTICIPANT_ID"
+}
+
+### Verlassen
+POST http://localhost:3000/sessions/SESSION_ID/leave
+Content-Type: application/json
+
+{
+  "participantId": "PARTICIPANT_ID"
+}
+
+### Session löschen
+DELETE http://localhost:3000/sessions/SESSION_ID
