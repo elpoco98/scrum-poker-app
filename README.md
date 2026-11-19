@@ -1,5 +1,6 @@
 ToDo
 - Skizze erstellen API's
+- /API/ Vite Config anpassen auf Standard
 
 # Scrum Poker App
 
