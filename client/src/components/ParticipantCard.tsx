@@ -13,7 +13,8 @@ function ParticipantCard({
 }: ParticipantCardProps) {
   let voteText = "Noch nicht abgestimmt";
 
-  if (participant.vote && !revealed) {
+  // Vor dem Reveal schickt der Server keine Stimmen, nur hasVoted.
+  if (participant.hasVoted && !revealed) {
     voteText = "Karte gewählt";
   }
 

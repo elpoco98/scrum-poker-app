@@ -29,13 +29,18 @@ scrum-poker-app/
 │   ├── tsconfig.app.json
 │   ├── tsconfig.node.json
 │   └── vite.config.ts
-├── server/
+├── server/                (bereitgestellte Server-Vorlage der HWZ)
 │   ├── src/
-│   │   ├── index.ts
-│   │   ├── sessions.ts
-│   │   └── types.ts
+│   │   ├── routes/
+│   │   │   └── sessions.ts
+│   │   ├── decks.ts
+│   │   ├── server.ts
+│   │   ├── store.ts
+│   │   ├── types.ts
+│   │   └── views.ts
 │   ├── package.json
-│   ├── test.http
+│   ├── README.md
+│   ├── requests.http
 │   └── tsconfig.json
 ├── .gitignore
 └── README.md
@@ -87,15 +92,16 @@ Beim Öffnen passiert Folgendes:
 1. `useParams()` liest die `sessionId` aus der URL.
 2. Der Benutzername wird aus `localStorage` gelesen.
 3. Falls noch kein Name gespeichert ist, kann er direkt auf der Session-Seite eingegeben werden. Dadurch funktioniert auch ein erstmals geöffneter geteilter Link.
-4. Das Frontend sendet `POST /sessions/:id/join`.
-5. Die Teilnehmer-ID wird unter `participantId:<sessionId>` in `localStorage` gespeichert.
+4. Das Frontend sendet `POST /api/sessions/:id/participants` mit dem Namen.
+5. Die Teilnehmer-ID aus der Antwort wird im State gehalten.
 6. Die Session wird vom Server geladen.
 
 Danach läuft alle drei Sekunden ein Polling:
 
-1. Ein Heartbeat wird gesendet.
-2. Die aktuelle Session wird neu geladen.
-3. Änderungen anderer Teilnehmer erscheinen dadurch im eigenen Browser.
+1. Die aktuelle Session wird mit `GET /api/sessions/:id` neu geladen.
+2. Änderungen anderer Teilnehmer erscheinen dadurch im eigenen Browser.
+
+Weil der Server die Stimmen bis zum Aufdecken verdeckt (auch die eigene), merkt sich die Seite die eigene gewählte Karte im State `myVote`. Ein zweiter Klick auf die gewählte Karte nimmt sie zurück (`vote: null`).
 
 Die Seite kann ausserdem:
 
@@ -134,7 +140,9 @@ In dieser Datei befinden sich alle HTTP-Aufrufe zum Backend.
 
 Dadurch muss nicht jede React-Komponente selbst lange `fetch()`-Aufrufe enthalten.
 
-Die kleine Hilfsfunktion `request<T>()` prüft, ob der Server mit einem erfolgreichen HTTP-Status antwortet. Bei einem Fehler wird eine verständliche Fehlermeldung geworfen.
+Alle Requests gehen an den relativen Pfad `/api`. Der Vite-Proxy leitet sie an den Express-Server auf Port 3000 weiter.
+
+Die kleine Hilfsfunktion `request<T>()` prüft, ob der Server mit einem erfolgreichen HTTP-Status antwortet. Bei einem Fehler wird die Meldung aus `{ "error": "..." }` als Fehler geworfen. Antworten mit Status 204 haben keinen Body und werden deshalb nicht als JSON gelesen.
 
 ### `client/src/types/index.ts`
 
@@ -155,66 +163,80 @@ Das Layout verwendet Flexbox und CSS Grid. Durch `auto-fit`, `minmax()` und eine
 
 ## 3. Backend
 
+Das Backend ist die von der HWZ bereitgestellte Server-Vorlage (Express 5 + TypeScript). Node 24 führt die `.ts`-Dateien direkt aus, einen Build-Schritt gibt es nicht. Details stehen zusätzlich in `server/README.md`.
+
+### `server/src/server.ts`
+
+Startet Express auf Port 3000, hängt alle Routen unter `/api` ein und enthält einen 404- und einen Fehler-Handler. Fehler kommen immer als JSON `{ "error": "..." }` zurück.
+
+CORS wird nicht benötigt: Im Entwicklungsmodus leitet der Vite-Proxy (`client/vite.config.ts`) alle Requests auf `/api` an `http://localhost:3000` weiter. Für den Browser liegen Frontend und Backend dadurch auf demselben Origin.
+
 ### `server/src/types.ts`
 
-Hier werden die wichtigsten Datenstrukturen definiert.
+Trennt zwei Arten von Types:
 
-`Participant` enthält:
+- **Domain-Types** (`Participant`, `Session`): So speichert der Server die Daten.
+- **Antwort-Types / DTOs** (`ParticipantView`, `SessionView`, `SessionSummary`, `ErrorResponse`): So sieht der Client die Daten.
 
-- `id`
-- `name`
-- `vote`
-- `lastSeen`
+`ParticipantView` enthält zusätzlich `hasVoted`. Die Frontend-Types in `client/src/types/index.ts` entsprechen diesen Antwort-Types.
 
-`Session` enthält:
-
-- `id`
-- `participants`
-- `deck`
-- `revealed`
-
-`DeckType` kann nur `fibonacci` oder `tshirt` sein.
-
-### `server/src/sessions.ts`
+### `server/src/store.ts`
 
 Hier befindet sich der zentrale In-Memory-Speicher:
 
 ```ts
-export const sessions = new Map<string, Session>();
+const sessions = new Map<string, Session>()
 ```
 
-Der Schlüssel ist die Session-ID. Der Wert ist die vollständige Session.
+Der Schlüssel ist die Session-ID (eine UUID). Dazu kommen kleine Helfer wie `createSession()`, `addParticipant()`, `findParticipantByName()` oder `clearVotes()`.
 
-Eine Datenbank wird bewusst nicht verwendet. Wird der Server neu gestartet, gehen deshalb alle Sessions verloren.
+Eine Datenbank wird bewusst nicht verwendet. Wird der Server neu gestartet, gehen alle Sessions verloren.
 
-Die Datei enthält ausserdem die Funktion `removeInactiveParticipants()`.
+### `server/src/decks.ts`
 
-Teilnehmer, deren letzter Heartbeat länger als 15 Sekunden zurückliegt, werden entfernt. Damit werden sogenannte Karteileichen verhindert, wenn jemand zum Beispiel den Browser schliesst oder die Internetverbindung verliert.
+Enthält die Karten der beiden Decks und die Funktion `isDeckId()`, die prüft, ob ein Wert aus dem Request-Body ein gültiges Deck ist.
 
-### `server/src/index.ts`
+### `server/src/views.ts`
 
-Diese Datei startet Express und enthält die API-Routen.
+Wandelt gespeicherte Daten in Antworten um. Hier werden die Stimmen verdeckt, solange die Runde nicht aufgedeckt ist.
+
+### `server/src/routes/sessions.ts`
+
+Enthält alle API-Routen.
 
 ## 4. API-Übersicht
 
-| Methode | Route | Aufgabe |
-| --- | --- | --- |
-| GET | `/` | Prüft, ob der Server läuft |
-| GET | `/sessions` | Gibt alle offenen Sessions und Teilnehmerzahlen zurück |
-| GET | `/sessions/:id` | Lädt eine einzelne Session |
-| POST | `/sessions` | Erstellt eine neue Session |
-| DELETE | `/sessions/:id` | Löscht eine Session |
-| POST | `/sessions/:id/join` | Fügt einen Teilnehmer hinzu |
-| POST | `/sessions/:id/leave` | Entfernt einen Teilnehmer |
-| POST | `/sessions/:id/heartbeat` | Aktualisiert `lastSeen` |
-| POST | `/sessions/:id/vote` | Speichert eine Schätzung |
-| POST | `/sessions/:id/reveal` | Deckt alle Karten auf |
-| POST | `/sessions/:id/reset` | Setzt die Runde zurück |
-| PUT | `/sessions/:id/deck` | Wechselt das aktive Deck |
+Alle Pfade beginnen mit `/api`.
+
+| Methode | Route | Body | Antwort | Fehler |
+| --- | --- | --- | --- | --- |
+| GET | `/sessions` | – | 200 `SessionSummary[]` | – |
+| POST | `/sessions` | – | 201 `SessionView` | – |
+| GET | `/sessions/:sessionId` | – | 200 `SessionView` | 404 |
+| DELETE | `/sessions/:sessionId` | – | 204 | 404 |
+| POST | `/sessions/:sessionId/participants` | `{ "name": "…" }` | 201 neu / 200 bekannt | 400, 404 |
+| DELETE | `/sessions/:sessionId/participants/:participantId` | – | 204 | 404 |
+| PUT | `/sessions/:sessionId/participants/:participantId/vote` | `{ "vote": "5" }` oder `{ "vote": null }` | 200 `ParticipantView` | 400, 404, 409 |
+| PUT | `/sessions/:sessionId/revealed` | `{ "revealed": true }` / `false` | 200 `SessionView` | 400, 404 |
+| PUT | `/sessions/:sessionId/deck` | `{ "deck": "tshirt" }` | 200 `SessionView` | 400, 404 |
+
+Welche Funktion in `client/src/api.ts` welche Route aufruft:
+
+| Funktion | Route |
+| --- | --- |
+| `getSessions()` | `GET /api/sessions` |
+| `createSession()` | `POST /api/sessions` |
+| `getSession()` | `GET /api/sessions/:sessionId` |
+| `deleteSession()` | `DELETE /api/sessions/:sessionId` |
+| `joinSession()` | `POST /api/sessions/:sessionId/participants` |
+| `leaveSession()` | `DELETE /api/sessions/:sessionId/participants/:participantId` |
+| `vote()` | `PUT /api/sessions/:sessionId/participants/:participantId/vote` |
+| `reveal()` / `reset()` | `PUT /api/sessions/:sessionId/revealed` mit `true` / `false` |
+| `changeDeck()` | `PUT /api/sessions/:sessionId/deck` |
 
 ## 5. Session erstellen
 
-Bei `POST /sessions` erzeugt der Server eine kurze zufällige ID.
+Bei `POST /api/sessions` erzeugt der Server mit `crypto.randomUUID()` eine eindeutige ID. Die ID wird vom Server erzeugt, nicht vom Client.
 
 Eine neue Session startet mit:
 
@@ -228,34 +250,31 @@ Danach wird die Session in der `Map` gespeichert.
 
 ## 6. Beitreten
 
-`POST /sessions/:id/join` erwartet einen Namen.
+`POST /api/sessions/:sessionId/participants` erwartet einen Namen.
 
-Optional kann der Client eine bereits gespeicherte Teilnehmer-ID mitsenden. Existiert dieser Teilnehmer noch, wird er wiederverwendet. Das macht Reloads robuster.
-
-Falls noch kein Teilnehmer mit dieser ID existiert, wird ein neuer Teilnehmer angelegt.
+Beitreten ist **idempotent**: Der Name ist der Schlüssel. Tritt jemand mit einem Namen bei, der schon am Tisch sitzt, liefert der Server denselben Teilnehmer zurück (200 statt 201). Dadurch entstehen bei einem Reload keine doppelten Teilnehmer. Verglichen wird exakt (`Anna` und `anna` sind zwei Personen), Leerzeichen am Anfang und Ende werden entfernt.
 
 ## 7. Voting
 
-Bei `POST /sessions/:id/vote` sendet das Frontend:
+Bei `PUT /api/sessions/:sessionId/participants/:participantId/vote` sendet das Frontend:
 
 ```json
 {
-  "participantId": "...",
   "vote": "5"
 }
 ```
 
-Der Server sucht den Teilnehmer und speichert die Stimme in `participant.vote`.
+Mit `{ "vote": null }` wird die Karte zurückgenommen. PUT, weil der Client den ganzen Wert der Ressource «vote» ersetzt.
 
-Der Server prüft ausserdem, ob der Vote zum momentan aktiven Deck gehört.
+Der Server prüft, ob die Karte zum aktiven Deck gehört (sonst 400). Nach dem Aufdecken ist Abstimmen gesperrt (409), bis eine neue Runde startet.
 
-Für Fibonacci sind erlaubt:
+Fibonacci:
 
 ```text
-1, 2, 3, 5, 8, 13, 21
+0, 1, 2, 3, 5, 8, 13, 21, ?
 ```
 
-Für T-Shirt-Grössen:
+T-Shirt-Grössen:
 
 ```text
 XS, S, M, L, XL
@@ -263,30 +282,26 @@ XS, S, M, L, XL
 
 ## 8. Verdeckte Karten
 
-Die Stimme liegt bereits auf dem Server, wird aber vor dem Reveal im Frontend nicht als Zahl dargestellt.
+Solange eine Runde nicht aufgedeckt ist, schickt der Server die Stimmen **nicht** mit. Sonst könnte jeder die Karten der anderen im DevTools-Tab «Network» lesen. Das Feld `hasVoted` verrät nur, ob jemand abgestimmt hat.
 
-Ein Teilnehmer mit Vote wird vor dem Reveal nur als `Karte gewählt` dargestellt.
+Ein Teilnehmer mit `hasVoted === true` wird vor dem Reveal nur als `Karte gewählt` dargestellt. Erst wenn `session.revealed === true` ist, liefert der Server `vote` mit und `ParticipantCard` zeigt den tatsächlichen Wert.
 
-Erst wenn `session.revealed === true` ist, zeigt `ParticipantCard` den tatsächlichen Wert.
+Auch die eigene Karte kommt erst nach dem Aufdecken vom Server. Welche Karte man gewählt hat, merkt sich deshalb das Frontend (`myVote` in `SessionPage.tsx`).
 
 ## 9. Reveal und Auswertung
 
-Mit `POST /sessions/:id/reveal` setzt der Server:
-
-```text
-revealed = true
-```
+Mit `PUT /api/sessions/:sessionId/revealed` und `{ "revealed": true }` deckt der Server auf.
 
 Die Auswertung wird danach im Frontend berechnet.
 
 ### Fibonacci
 
-Bei numerischen Fibonacci-Werten wird der Durchschnitt berechnet.
+Bei numerischen Fibonacci-Werten wird der Durchschnitt berechnet. Die Karte `?` fliesst nicht in den Durchschnitt ein.
 
 Beispiel:
 
 ```text
-3, 5, 8
+3, 5, 8, ?
 Durchschnitt = 5.3
 ```
 
@@ -305,15 +320,15 @@ Diese Variante ist leicht nachvollziehbar und ergibt für nicht-numerische Werte
 
 ### Einstimmigkeit
 
-Haben alle aktuell verbundenen Teilnehmer abgestimmt und sind alle Stimmen gleich, zeigt die App statt des normalen Ergebnisses:
+Haben alle Teilnehmer abgestimmt und sind alle Stimmen gleich, zeigt die App statt des normalen Ergebnisses:
 
 ```text
 Alle sind sich einig: <Wert>
 ```
 
-## 10. Reset
+## 10. Neue Runde (Reset)
 
-`POST /sessions/:id/reset` setzt:
+`PUT /api/sessions/:sessionId/revealed` mit `{ "revealed": false }` startet eine neue Runde. Der Server setzt dabei:
 
 ```text
 revealed = false
@@ -329,11 +344,11 @@ Danach kann die nächste Runde beginnen.
 
 ## 11. Deck-Wechsel
 
-Jeder Teilnehmer kann zwischen Fibonacci und T-Shirt wechseln.
+Jeder Teilnehmer kann zwischen Fibonacci und T-Shirt wechseln (`PUT /api/sessions/:sessionId/deck`).
 
 Das aktive Deck liegt im Session-State auf dem Server und ist deshalb für alle Teilnehmer gleich.
 
-Beim Deck-Wechsel werden vorhandene Votes gelöscht und `revealed` auf `false` gesetzt. Dadurch bleiben keine Stimmen aus einer anderen Schätzskala bestehen.
+Ein Wechsel startet immer eine neue, verdeckte Runde, weil die alten Karten nicht zum neuen Deck passen (`8` gibt es bei T-Shirts nicht).
 
 ## 12. Polling
 
@@ -355,25 +370,15 @@ Beim Unmount wird das Intervall mit `clearInterval()` entfernt.
 
 ## 13. Strategie gegen Karteileichen
 
-Ein normaler Leave-Button reicht nicht aus. Wenn ein Browser-Tab geschlossen wird oder das Netzwerk ausfällt, wird die Leave-Anfrage eventuell nie gesendet.
+Der bereitgestellte Server kennt keinen Heartbeat. Teilnehmer werden nur entfernt, wenn der Client `DELETE /api/sessions/:sessionId/participants/:participantId` sendet. Das Frontend sendet diesen Request deshalb in drei Situationen:
 
-Deshalb verwendet die Anwendung einen Heartbeat.
+1. Klick auf `Session verlassen`.
+2. Wechsel auf eine andere Seite innerhalb der App (Cleanup-Funktion von `useEffect`).
+3. Schliessen oder Neuladen des Tabs (Event `pagehide`).
 
-Alle drei Sekunden sendet der Client:
+Damit der Request beim Schliessen des Tabs noch beim Server ankommt, wird `fetch` mit der Option `keepalive: true` aufgerufen.
 
-```text
-POST /sessions/:id/heartbeat
-```
-
-Der Server speichert dabei:
-
-```text
-participant.lastSeen = Date.now()
-```
-
-Wenn ein Teilnehmer länger als 15 Sekunden keinen Heartbeat mehr sendet, entfernt der Server ihn automatisch.
-
-Dadurch verschwinden getrennte oder geschlossene Clients nach kurzer Zeit aus der Teilnehmerliste.
+Nach einem Reload tritt der Browser automatisch wieder mit demselben Namen bei. Fällt das Netzwerk komplett aus, kann der Leave-Request nicht gesendet werden. Dieser Fall wird vom Server nicht behandelt.
 
 ## 14. Lade- und Fehlerzustände
 
@@ -523,15 +528,15 @@ Die Anwendung muss eine Fehlermeldung und einen Link zur Startseite anzeigen.
 
 1. Mit zwei Browsern einer Session beitreten.
 2. Einen Browser komplett schliessen.
-3. Nach ungefähr 15 bis 20 Sekunden muss der Teilnehmer beim anderen Browser verschwinden.
+3. Spätestens nach dem nächsten Polling (ca. 3 Sekunden) muss der Teilnehmer beim anderen Browser verschwinden.
 
-## 18. `server/test.http`
+## 18. `server/requests.http`
 
-Die Datei `server/test.http` enthält Requests, mit denen die API direkt getestet werden kann.
+Die Datei `server/requests.http` enthält Beispiel-Requests für alle Routen, mit denen die API direkt getestet werden kann.
 
 Dafür kann in VS Code zum Beispiel die Erweiterung `REST Client` verwendet werden.
 
-Bei Requests mit Platzhaltern müssen `SESSION_ID` und `PARTICIPANT_ID` durch echte IDs aus vorherigen Antworten ersetzt werden.
+IDs müssen nicht kopiert werden: Zuerst «Create session» und «Join session» ausführen, die übrigen Requests verwenden die IDs danach automatisch.
 
 ## 19. Wichtige Punkte für das Fachgespräch
 
@@ -545,7 +550,8 @@ Jedes Gruppenmitglied sollte erklären können:
 - wie ein Kartenklick vom React-Event bis zum Express-Server läuft,
 - warum Votes vor dem Reveal verdeckt bleiben,
 - wie Polling funktioniert,
-- wie der Heartbeat Karteileichen entfernt,
+- wie Karteileichen ohne Heartbeat vermieden werden (Leave bei Unmount und `pagehide`),
+- warum Votes per `PUT` und Teilnehmer per `POST` / `DELETE` angesprochen werden und welche Status-Codes zurückkommen,
 - warum TypeScript-Interfaces verwendet werden,
 - warum kein `any` nötig ist.
 

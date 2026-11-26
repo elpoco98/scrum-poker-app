@@ -76,7 +76,7 @@ Falls Node.js noch nicht installiert ist, kann es hier heruntergeladen werden:
 
 https://nodejs.org/
 
-Für das Projekt sollte eine aktuelle LTS-Version verwendet werden.
+Für das Projekt wird Node.js 24 (LTS) oder neuer benötigt. Der Server führt die TypeScript-Dateien direkt mit Node aus.
 
 Nach der Installation sollte das Terminal neu geöffnet werden.
 
@@ -134,7 +134,7 @@ Nach der Installation kann der Projektordner später direkt in Visual Studio Cod
 
 Optional kann zusätzlich die Erweiterung `REST Client` installiert werden.
 
-Diese Erweiterung ist hilfreich, um die Backend-API direkt aus einer Datei wie `test.http` zu testen.
+Diese Erweiterung ist hilfreich, um die Backend-API direkt aus einer Datei wie `requests.http` zu testen.
 
 ---
 
@@ -226,7 +226,7 @@ pnpm dev
 Wenn alles korrekt funktioniert, sollte im Terminal ungefähr folgende Meldung erscheinen:
 
 ```text
-Server läuft auf http://localhost:3000
+Server running at http://localhost:3000
 ```
 
 Das Backend ist dann erreichbar unter:
@@ -235,14 +235,12 @@ Das Backend ist dann erreichbar unter:
 http://localhost:3000
 ```
 
-Zum Testen kann diese Adresse im Browser geöffnet werden.
+Zum Testen kann im Browser die Adresse `http://localhost:3000/api/sessions` geöffnet werden.
 
-Die Antwort sollte ungefähr so aussehen:
+Solange noch keine Session existiert, ist die Antwort eine leere Liste:
 
 ```json
-{
-  "message": "Scrum Poker Server läuft"
-}
+[]
 ```
 
 Das Terminal mit dem Backend muss geöffnet bleiben.
@@ -296,7 +294,7 @@ Die Scrum Poker App sollte nun sichtbar sein.
 
 ## 12. Frontend und Backend gleichzeitig starten
 
-Für die App müssen Frontend und Backend gleichzeitig laufen.
+Für die App müssen Frontend und Backend gleichzeitig laufen. Das Frontend erreicht das Backend über den Vite-Proxy auf `/api`.
 
 ### Terminal 1
 
@@ -442,6 +440,7 @@ Zum Beispiel:
 ### Fibonacci
 
 ```text
+0
 1
 2
 3
@@ -449,6 +448,7 @@ Zum Beispiel:
 8
 13
 21
+?
 ```
 
 ### T-Shirt-Sizes
@@ -732,7 +732,7 @@ Optional kann die API mit der VS-Code-Erweiterung `REST Client` getestet werden.
 Dafür kann die Datei:
 
 ```text
-server/test.http
+server/requests.http
 ```
 
 verwendet werden.
@@ -740,19 +740,19 @@ verwendet werden.
 Beispiel zum Erstellen einer Session:
 
 ```http
-POST http://localhost:3000/sessions
+POST http://localhost:3000/api/sessions
 ```
 
 Beispiel zum Abrufen aller Sessions:
 
 ```http
-GET http://localhost:3000/sessions
+GET http://localhost:3000/api/sessions
 ```
 
 Beispiel zum Abrufen einer bestimmten Session:
 
 ```http
-GET http://localhost:3000/sessions/ABC123
+GET http://localhost:3000/api/sessions/ABC123
 ```
 
 Die Session-ID `ABC123` muss dabei durch eine tatsächlich existierende Session-ID ersetzt werden.

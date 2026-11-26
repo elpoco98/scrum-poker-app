@@ -1,13 +1,23 @@
-import type { DeckType, Participant, Session, SessionSummary } from "./types";
+import type { DeckType, ErrorResponse, Participant, Session, SessionSummary } from "./types";
 
-const API_URL = "http://localhost:3000";
+// Relativer Pfad: Der Vite-Proxy (vite.config.ts) leitet /api an http://localhost:3000 weiter.
+const API_URL = "/api";
+
+const jsonHeaders = {
+  "Content-Type": "application/json",
+};
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${url}`, options);
 
   if (!response.ok) {
-    const data = await response.json().catch(() => null);
-    throw new Error(data?.message ?? "Serveranfrage fehlgeschlagen");
+    const data = (await response.json().catch(() => null)) as ErrorResponse | null;
+    throw new Error(data?.error ?? `Serveranfrage fehlgeschlagen (${response.status})`);
+  }
+
+  // 204 No Content (z. B. bei DELETE) hat keinen Body.
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return response.json() as Promise<T>;
@@ -28,77 +38,58 @@ export function getSession(sessionId: string) {
 }
 
 export function deleteSession(sessionId: string) {
-  return request<{ message: string }>(`/sessions/${sessionId}`, {
+  return request<void>(`/sessions/${sessionId}`, {
     method: "DELETE",
   });
 }
 
-export function joinSession(
-  sessionId: string,
-  name: string,
-  participantId?: string
-) {
-  return request<Participant>(`/sessions/${sessionId}/join`, {
+// Beitreten ist idempotent: Mit demselben Namen bekommt man denselben Teilnehmer zurück.
+export function joinSession(sessionId: string, name: string) {
+  return request<Participant>(`/sessions/${sessionId}/participants`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ name, participantId }),
+    headers: jsonHeaders,
+    body: JSON.stringify({ name }),
   });
 }
 
-export function leaveSession(sessionId: string, participantId: string) {
-  return request<{ message: string }>(`/sessions/${sessionId}/leave`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ participantId }),
+// keepalive: Der Request wird auch dann noch gesendet, wenn der Tab gerade geschlossen wird.
+export function leaveSession(sessionId: string, participantId: string, keepalive = false) {
+  return request<void>(`/sessions/${sessionId}/participants/${participantId}`, {
+    method: "DELETE",
+    keepalive,
   });
 }
 
-export function sendHeartbeat(sessionId: string, participantId: string) {
-  return request<{ message: string }>(`/sessions/${sessionId}/heartbeat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ participantId }),
+// value = null nimmt die Karte zurück.
+export function vote(sessionId: string, participantId: string, value: string | null) {
+  return request<Participant>(`/sessions/${sessionId}/participants/${participantId}/vote`, {
+    method: "PUT",
+    headers: jsonHeaders,
+    body: JSON.stringify({ vote: value }),
   });
 }
 
-export function vote(
-  sessionId: string,
-  participantId: string,
-  value: string
-) {
-  return request<Participant>(`/sessions/${sessionId}/vote`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ participantId, vote: value }),
+// true = aufdecken, false = neue Runde (Server löscht alle Stimmen).
+function setRevealed(sessionId: string, revealed: boolean) {
+  return request<Session>(`/sessions/${sessionId}/revealed`, {
+    method: "PUT",
+    headers: jsonHeaders,
+    body: JSON.stringify({ revealed }),
   });
 }
 
 export function reveal(sessionId: string) {
-  return request<Session>(`/sessions/${sessionId}/reveal`, {
-    method: "POST",
-  });
+  return setRevealed(sessionId, true);
 }
 
 export function reset(sessionId: string) {
-  return request<Session>(`/sessions/${sessionId}/reset`, {
-    method: "POST",
-  });
+  return setRevealed(sessionId, false);
 }
 
 export function changeDeck(sessionId: string, deck: DeckType) {
   return request<Session>(`/sessions/${sessionId}/deck`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: jsonHeaders,
     body: JSON.stringify({ deck }),
   });
 }

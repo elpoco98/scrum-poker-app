@@ -7,14 +7,14 @@ import {
   leaveSession,
   reset,
   reveal,
-  sendHeartbeat,
   vote,
 } from "../api";
 import ParticipantCard from "../components/ParticipantCard";
 import PokerCard from "../components/PokerCard";
 import type { DeckType, Session } from "../types";
 
-const fibonacciCards = ["1", "2", "3", "5", "8", "13", "21"];
+// Gleiche Karten wie im Server (server/src/decks.ts). Karten sind immer Texte.
+const fibonacciCards = ["0", "1", "2", "3", "5", "8", "13", "21", "?"];
 const tshirtCards = ["XS", "S", "M", "L", "XL"];
 
 function SessionPage() {
@@ -29,6 +29,9 @@ function SessionPage() {
   const [syncing, setSyncing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Der Server verrät die eigene Stimme erst nach dem Aufdecken.
+  // Welche Karte gewählt wurde, merkt sich deshalb das Frontend.
+  const [myVote, setMyVote] = useState<string | null>(null);
 
   const participantIdRef = useRef<string | null>(null);
 
@@ -58,21 +61,18 @@ function SessionPage() {
 
     let cancelled = false;
 
-    async function startSession() {
+    async function startSession(sessionId: string) {
       try {
         setLoading(true);
         setError(null);
 
-        const storageKey = `participantId:${sessionId}`;
-        const storedParticipantId = localStorage.getItem(storageKey) ?? undefined;
-
-        const participant = await joinSession(sessionId, name, storedParticipantId);
+        // Der Name ist der Schlüssel: Mit demselben Namen bekommt man denselben Platz zurück.
+        const participant = await joinSession(sessionId, name);
 
         if (cancelled) {
           return;
         }
 
-        localStorage.setItem(storageKey, participant.id);
         participantIdRef.current = participant.id;
         setParticipantId(participant.id);
 
@@ -92,7 +92,7 @@ function SessionPage() {
       }
     }
 
-    void startSession();
+    void startSession(sessionId);
 
     return () => {
       cancelled = true;
@@ -107,7 +107,6 @@ function SessionPage() {
     const intervalId = window.setInterval(async () => {
       try {
         setSyncing(true);
-        await sendHeartbeat(sessionId, participantId);
         const data = await getSession(sessionId);
         setSession(data);
         setError(null);
@@ -121,17 +120,30 @@ function SessionPage() {
     return () => window.clearInterval(intervalId);
   }, [participantId, sessionId]);
 
+  // Strategie gegen Karteileichen: Beim Verlassen der Seite (Navigation in der App)
+  // und beim Schliessen des Tabs (pagehide) wird der Teilnehmer serverseitig entfernt.
   useEffect(() => {
-    return () => {
+    function leaveQuietly() {
       if (sessionId && participantIdRef.current) {
-        void leaveSession(sessionId, participantIdRef.current).catch(() => undefined);
+        void leaveSession(sessionId, participantIdRef.current, true).catch(() => undefined);
+        participantIdRef.current = null;
       }
+    }
+
+    window.addEventListener("pagehide", leaveQuietly);
+
+    return () => {
+      window.removeEventListener("pagehide", leaveQuietly);
+      leaveQuietly();
     };
   }, [sessionId]);
 
   const currentParticipant = session?.participants.find(
     (participant) => participant.id === participantId
   );
+
+  // Hat der Server die Stimme gelöscht (neue Runde, Deck-Wechsel), ist auch keine Karte mehr markiert.
+  const selectedVote = currentParticipant?.hasVoted ? myVote : null;
 
   const cards = session?.deck === "tshirt" ? tshirtCards : fibonacciCards;
 
@@ -157,7 +169,13 @@ function SessionPage() {
     }
 
     if (session.deck === "fibonacci") {
-      const numbers = votes.map(Number);
+      // "?" ist keine Zahl und fliesst nicht in den Durchschnitt ein.
+      const numbers = votes.filter((item) => item !== "?").map(Number);
+
+      if (numbers.length === 0) {
+        return "Keine numerischen Schätzungen vorhanden.";
+      }
+
       const average = numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
       return `Durchschnitt: ${average.toFixed(1)}`;
     }
@@ -190,7 +208,13 @@ function SessionPage() {
       return;
     }
 
-    await runAction(() => vote(sessionId, participantId, value));
+    // Klick auf die bereits gewählte Karte nimmt sie zurück (vote: null).
+    const newVote = selectedVote === value ? null : value;
+
+    await runAction(async () => {
+      await vote(sessionId, participantId, newVote);
+      setMyVote(newVote);
+    });
   }
 
   async function handleReveal() {
@@ -226,7 +250,6 @@ function SessionPage() {
     try {
       setActionLoading(true);
       await leaveSession(sessionId, participantId);
-      localStorage.removeItem(`participantId:${sessionId}`);
       participantIdRef.current = null;
       navigate("/");
     } catch (err) {
@@ -360,7 +383,7 @@ function SessionPage() {
             <PokerCard
               key={value}
               value={value}
-              selected={currentParticipant?.vote === value}
+              selected={selectedVote === value}
               disabled={actionLoading || session.revealed}
               onClick={() => void handleVote(value)}
             />
