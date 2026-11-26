@@ -1,6 +1,3 @@
-ToDo
-- Skizze erstellen API's
-
 # Scrum Poker App
 
 Eine bewusst einfach aufgebaute Full-Stack-Webanwendung für Planning Poker. Das Projekt besteht aus einem React-/TypeScript-Frontend und einem Node.js-/Express-Backend.
@@ -59,6 +56,8 @@ scrum-poker-app/
 │   ├── README.md
 │   ├── requests.http
 │   └── tsconfig.json
+├── docs/
+│   └── screenshots/       Screenshots für die API-Skizze (Abschnitt 4)
 ├── .gitignore
 └── README.md
 ```
@@ -249,6 +248,56 @@ Wo das Frontend welche Route aufruft:
 | `PokerTable` | `useMutation('PUT')` | `PUT /api/sessions/:sessionId/revealed` mit `true` / `false` |
 | `PokerTable` | `useMutation('PUT')` | `PUT /api/sessions/:sessionId/deck` |
 | `PokerTable` | `useMutation('DELETE')` bzw. `fetch` mit `keepalive` | `DELETE /api/sessions/:sessionId/participants/:participantId` |
+
+### Skizze: Welcher Button welche API aufruft
+
+Die Screenshots zeigen die laufende Applikation. Die orangen Nummern markieren die Elemente, die eine Route auf dem Server aufrufen.
+
+#### Home-Seite (`/`)
+
+![Home-Seite mit markierten API-Aufrufen](docs/screenshots/home.png)
+
+| Nr. | Element | Methode und Route | Antwort | Was danach passiert |
+| --- | --- | --- | --- | --- |
+| 1 | Liste «Offene Sessions» (kein Button, automatisch) | `GET /api/sessions` | 200 `SessionSummary[]` | Wird beim Öffnen der Seite und danach alle 3 Sekunden geladen (Polling mit `useQuery`). Zeigt ID und Teilnehmerzahl. |
+| 2 | Button «Neue Session erstellen» | `POST /api/sessions` | 201 `SessionView` | Der Name wird zuerst geprüft (nicht leer). Der Server erzeugt die ID, danach wechselt die App zu `/sessions/<id>`. |
+| 3 | Klick auf einen Session-Eintrag | – (noch keine Route) | – | Der Name wird geprüft, dann wechselt die App zu `/sessions/<id>`. Das eigentliche Beitreten passiert auf der Session-Seite (siehe unten). |
+| 4 | Button «Löschen» | `DELETE /api/sessions/:sessionId` | 204 / 404 | Danach wird die Liste mit `refetch()` sofort neu geladen. |
+
+Das Namensfeld ruft keine Route auf: Der Name wird bei jeder Änderung nur im `localStorage` gespeichert.
+
+#### Pokertisch (`/sessions/:sessionId`)
+
+![Pokertisch mit markierten API-Aufrufen](docs/screenshots/session.png)
+
+| Nr. | Element | Methode und Route | Body | Antwort | Was danach passiert |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Öffnen der Seite (automatisch) | `POST /api/sessions/:sessionId/participants` | `{ "name": "Vincent" }` | 201 neu / 200 bekannt / 404 | Meldet den Benutzer am Tisch an. Die Teilnehmer-ID aus der Antwort wird gespeichert. Bei 404 erscheint «Session nicht verfügbar». |
+| 2 | Teilnehmer, Deck, Reveal-Zustand (automatisch) | `GET /api/sessions/:sessionId` | – | 200 `SessionView` / 404 | Alle 3 Sekunden (Polling mit `useQuery`). So sieht man Änderungen der anderen Teilnehmer. |
+| 3 | Button «Session verlassen» | `DELETE /api/sessions/:sessionId/participants/:participantId` | – | 204 / 404 | Danach Wechsel zur Home-Seite. Derselbe Request wird beim Schliessen des Tabs automatisch gesendet (`keepalive`). |
+| 4 | Buttons «Fibonacci» / «T-Shirt» | `PUT /api/sessions/:sessionId/deck` | `{ "deck": "tshirt" }` | 200 `SessionView` | Der Server startet eine neue, verdeckte Runde. Danach `refetch()`. |
+| 5 | Pokerkarte (z. B. «8») | `PUT /api/sessions/:sessionId/participants/:participantId/vote` | `{ "vote": "8" }` bzw. `{ "vote": null }` | 200 `ParticipantView` / 409 | Die gewählte Karte wird im State `myVote` gemerkt. Ein zweiter Klick nimmt sie zurück (`null`). Die anderen sehen nur «Karte gewählt». |
+| 6 | Button «Karten aufdecken» | `PUT /api/sessions/:sessionId/revealed` | `{ "revealed": true }` | 200 `SessionView` | Der Server schickt ab jetzt alle Stimmen mit. Danach `refetch()`. |
+| 7 | Button «Runde zurücksetzen» | `PUT /api/sessions/:sessionId/revealed` | `{ "revealed": false }` | 200 `SessionView` | Der Server löscht alle Stimmen und verdeckt die Karten. Danach `refetch()`. |
+
+#### Nach dem Aufdecken
+
+Nach Button 6 liefert das nächste `GET /api/sessions/:sessionId` die Stimmen aller Teilnehmer. Die Auswertung (hier der Durchschnitt) berechnet das Frontend in `utils/result.ts`. Die Karten sind gesperrt, bis eine neue Runde startet (der Server würde sonst mit 409 antworten).
+
+![Pokertisch nach dem Aufdecken](docs/screenshots/session-revealed.png)
+
+#### Ablauf eines Kartenklicks
+
+```text
+Klick auf Karte «8»                         (PokerCard → onClick)
+  → handleVote('8')                         (PokerTable)
+  → voteMutation.send(.../vote, { vote: '8' })
+  → PUT /api/sessions/:sessionId/participants/:participantId/vote
+  ← 200 { id, name, hasVoted: true, vote: null }
+  → setMyVote('8') und sessionQuery.refetch()
+  → GET /api/sessions/:sessionId
+  ← 200 SessionView → React rendert die Karte als gewählt
+```
 
 ## 5. Session erstellen
 
