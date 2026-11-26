@@ -1,3 +1,7 @@
+ToDo
+- Skizze erstellen API's
+- /API/ Vite Config anpassen auf Standard
+
 # Scrum Poker App
 
 Eine bewusst einfach aufgebaute Full-Stack-Webanwendung für Planning Poker. Das Projekt besteht aus einem React-/TypeScript-Frontend und einem Node.js-/Express-Backend.
