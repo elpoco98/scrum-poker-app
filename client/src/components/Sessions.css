@@ -1,0 +1,30 @@
+.session-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.session-link {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  text-align: left;
+}
+
+@media (max-width: 600px) {
+  .session-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .session-link {
+    width: 100%;
+  }
+}

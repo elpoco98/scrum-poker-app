@@ -1,6 +1,5 @@
 ToDo
 - Skizze erstellen API's
-- /API/ Vite Config anpassen auf Standard
 
 # Scrum Poker App
 
@@ -12,28 +11,42 @@ Der Fokus dieses Projekts liegt auf verständlichem Code. Deshalb werden keine z
 
 ```text
 scrum-poker-app/
-├── client/
+├── client/                (Frontend, aufgebaut nach der Client-Vorlage des Dozenten)
+│   ├── public/
+│   │   └── favicon.svg
 │   ├── src/
+│   │   ├── api/
+│   │   │   └── request.ts              Helfer aus der Vorlage: ein Ort für alle fetch-Aufrufe
 │   │   ├── components/
-│   │   │   ├── ParticipantCard.tsx
-│   │   │   └── PokerCard.tsx
+│   │   │   ├── App.tsx                 Wurzelkomponente mit dem Routing
+│   │   │   ├── Input.tsx               Textfeld (Vorlage), gibt den Text direkt weiter
+│   │   │   ├── ParticipantCard.tsx/.css
+│   │   │   ├── PokerCard.tsx/.css
+│   │   │   ├── PokerTable.tsx/.css     Pokertisch einer Session (Polling, Aktionen)
+│   │   │   ├── Sessions.tsx/.css       Liste der offenen Sessions
+│   │   │   └── SessionRow.tsx          Ein Eintrag der Session-Liste
+│   │   ├── hooks/
+│   │   │   ├── useMutation.ts          Helfer aus der Vorlage: POST, PUT, DELETE
+│   │   │   └── useQuery.ts             Helfer aus der Vorlage: GET mit optionalem Polling
 │   │   ├── pages/
-│   │   │   ├── HomePage.tsx
+│   │   │   ├── HomePage.tsx/.css
 │   │   │   ├── NotFoundPage.tsx
 │   │   │   └── SessionPage.tsx
 │   │   ├── types/
-│   │   │   └── index.ts
-│   │   ├── api.ts
-│   │   ├── App.tsx
-│   │   ├── index.css
+│   │   │   └── api.ts                  Types der Server-Antworten (Vorlage)
+│   │   ├── utils/
+│   │   │   ├── decks.ts                Karten der Decks und Deck-Buttons
+│   │   │   ├── result.ts               Auswertung nach dem Aufdecken
+│   │   │   └── username.ts             Name im localStorage lesen/schreiben
+│   │   ├── config.ts                   Polling-Intervall
+│   │   ├── index.css                   Globale Styles
 │   │   └── main.tsx
+│   ├── .oxlintrc.json, .prettierrc
 │   ├── index.html
 │   ├── package.json
-│   ├── tsconfig.json
-│   ├── tsconfig.app.json
-│   ├── tsconfig.node.json
+│   ├── tsconfig.json, tsconfig.app.json, tsconfig.node.json
 │   └── vite.config.ts
-├── server/                (bereitgestellte Server-Vorlage der HWZ)
+├── server/                (bereitgestellte Server-Vorlage der HWZ, unverändert)
 │   ├── src/
 │   │   ├── routes/
 │   │   │   └── sessions.ts
@@ -52,118 +65,117 @@ scrum-poker-app/
 
 ## 2. Frontend
 
+Das Frontend verwendet die Helfer aus der Client-Vorlage des Dozenten (`request`, `useQuery`, `useMutation`) und dieselben Tools (Vite, TypeScript, oxlint, Prettier). Die Dateien `api/request.ts`, `hooks/useQuery.ts`, `hooks/useMutation.ts` und `types/api.ts` sind unverändert aus der Vorlage übernommen.
+
+### Komponentenbaum
+
+```text
+main.tsx
+└── App                       (components/App.tsx, Routing)
+    ├── HomePage              /
+    │   ├── Input
+    │   └── Sessions
+    │       └── SessionRow    (eine pro Session, key = Session-ID)
+    ├── SessionPage           /sessions/:sessionId
+    │   ├── Input             (nur wenn noch kein Name gespeichert ist)
+    │   └── PokerTable        (erst nach dem Beitreten)
+    │       ├── ParticipantCard   (eine pro Teilnehmer)
+    │       └── PokerCard         (eine pro Karte)
+    └── NotFoundPage          *
+```
+
 ### `client/src/main.tsx`
 
-Dies ist der Einstiegspunkt des React-Frontends. Die Datei sucht das HTML-Element mit der ID `root` und rendert dort die `App`-Komponente.
+Einstiegspunkt. Sucht das Element mit der ID `root` und rendert dort `<App />`.
 
-### `client/src/App.tsx`
+### `client/src/components/App.tsx`
 
-Hier befindet sich das Routing mit React Router.
-
-Es gibt drei Routen:
+Routing mit React Router (optionale Erweiterung, Abschnitt 3.4 der Vorgaben):
 
 - `/` zeigt die Home-Seite.
 - `/sessions/:sessionId` zeigt eine bestimmte Poker-Session.
 - `*` fängt alle unbekannten URLs ab und zeigt die 404-Seite.
 
-Die Session-ID ist deshalb Bestandteil der URL und kann geteilt oder als Bookmark gespeichert werden.
+Die Session-ID ist Teil der URL und kann geteilt oder als Bookmark gespeichert werden.
+
+### `client/src/api/request.ts`
+
+Ein Ort für alle Server-Anfragen. `request()` wirft nie, sondern gibt immer ein Ergebnis-Objekt zurück:
+
+- Erfolg: `{ data: ..., error: null }`
+- Fehler: `{ data: null, error: 'Meldung' }`
+
+Ist der Server nicht erreichbar, kommt `Server not reachable.` zurück. Sonst wird die Meldung aus `{ "error": "..." }` gelesen. Antworten mit Status 204 haben keinen Body.
+
+### `client/src/hooks/useQuery.ts`
+
+Lädt Daten per `GET`, sobald die Komponente gemountet wird. Mit `{ pollMs }` wird regelmässig neu geladen (Polling). Das Intervall wird in der Cleanup-Funktion von `useEffect` wieder entfernt. `isLoading` ist nur bis zur ersten Antwort `true`, damit das Polling nicht flackert. Bei einem Fehler bleiben die letzten Daten erhalten. `refetch()` lädt sofort neu (z. B. nach einer Abstimmung).
+
+### `client/src/hooks/useMutation.ts`
+
+Für Änderungen per Klick (`POST`, `PUT`, `DELETE`). Liefert `send(url, body)`, `isLoading` und `error`. Die URL wird erst beim Senden übergeben, deshalb deckt ein Hook viele Einträge ab (z. B. das Löschen beliebiger Sessions).
 
 ### `client/src/pages/HomePage.tsx`
 
-Die Home-Seite ist der Einstieg in die App.
+Die Home-Seite ist der Einstieg in die App:
 
-Sie übernimmt folgende Aufgaben:
+1. Benutzername eingeben und sofort in `localStorage` speichern (`utils/username.ts`).
+2. Offene Sessions mit `useQuery` laden und alle drei Sekunden aktualisieren.
+3. Neue Session erstellen (`useMutation('POST')`), danach mit `useNavigate()` zu `/sessions/<id>` wechseln.
+4. Einer bestehenden Session beitreten (Klick auf einen Eintrag).
+5. Eine Session löschen (`useMutation('DELETE')`), danach die Liste mit `refetch()` neu laden.
+6. Leere Namen abfangen sowie Lade- und Fehlerzustände anzeigen.
 
-1. Benutzername eingeben.
-2. Benutzername direkt in `localStorage` speichern.
-3. Offene Sessions vom Server laden.
-4. Die Session-Liste alle drei Sekunden aktualisieren.
-5. Eine neue Session erstellen.
-6. Einer bestehenden Session beitreten.
-7. Eine Session löschen.
-8. Lade- und Fehlerzustände anzeigen.
-
-Der Benutzername wird unter dem Schlüssel `username` gespeichert. Dadurch bleibt er nach einem Browser-Reload vorhanden.
-
-Beim Erstellen einer Session sendet die Home-Seite einen `POST /sessions` Request. Danach navigiert sie mit `useNavigate()` zu `/sessions/<id>`.
+Die Session-Daten liegen in der HomePage und werden per Props an `Sessions` weitergegeben (Lifting State Up), weil die HomePage nach dem Löschen die Liste neu laden muss.
 
 ### `client/src/pages/SessionPage.tsx`
 
-Diese Seite enthält den grössten Teil der Spiellogik.
-
-Beim Öffnen passiert Folgendes:
-
 1. `useParams()` liest die `sessionId` aus der URL.
 2. Der Benutzername wird aus `localStorage` gelesen.
-3. Falls noch kein Name gespeichert ist, kann er direkt auf der Session-Seite eingegeben werden. Dadurch funktioniert auch ein erstmals geöffneter geteilter Link.
-4. Das Frontend sendet `POST /api/sessions/:id/participants` mit dem Namen.
+3. Falls noch kein Name gespeichert ist, kann er direkt hier eingegeben werden. Dadurch funktioniert auch ein erstmals geöffneter geteilter Link.
+4. In einem `useEffect` sendet die Seite `POST /api/sessions/:id/participants` mit dem Namen (direkt über `request()`, weil `useMutation` für Klicks gedacht ist).
 5. Die Teilnehmer-ID aus der Antwort wird im State gehalten.
-6. Die Session wird vom Server geladen.
+6. Danach wird `PokerTable` gerendert.
 
-Danach läuft alle drei Sekunden ein Polling:
+### `client/src/components/PokerTable.tsx`
 
-1. Die aktuelle Session wird mit `GET /api/sessions/:id` neu geladen.
-2. Änderungen anderer Teilnehmer erscheinen dadurch im eigenen Browser.
+Der Pokertisch einer Session. Er wird erst nach dem Beitreten gerendert, dadurch startet das Polling erst mit einer bekannten Teilnehmer-ID.
 
-Weil der Server die Stimmen bis zum Aufdecken verdeckt (auch die eigene), merkt sich die Seite die eigene gewählte Karte im State `myVote`. Ein zweiter Klick auf die gewählte Karte nimmt sie zurück (`vote: null`).
+- `useQuery<SessionView>` lädt die Session alle drei Sekunden neu.
+- Je ein `useMutation` für Abstimmen, Aufdecken/Zurücksetzen, Deck-Wechsel und Verlassen. Nach jeder erfolgreichen Aktion lädt `refetch()` die Session sofort neu.
+- Weil der Server die Stimmen bis zum Aufdecken verdeckt (auch die eigene), merkt sich die Komponente die eigene Karte im State `myVote`. Ein zweiter Klick auf die gewählte Karte nimmt sie zurück (`vote: null`).
+- Abgeleitete Werte (eigener Teilnehmer, markierte Karte, Karten des Decks, Auswertung) werden bei jedem Render berechnet und nicht separat im State gehalten.
+- Beim Unmount und beim Schliessen des Tabs wird der Teilnehmer serverseitig entfernt (siehe Abschnitt 13).
 
-Die Seite kann ausserdem:
+### `client/src/components/Sessions.tsx` und `SessionRow.tsx`
 
-- Karten auswählen,
-- das Deck wechseln,
-- Karten aufdecken,
-- eine Runde zurücksetzen,
-- die Session verlassen.
-
-Beim Verlassen der Komponente wird ebenfalls versucht, den Teilnehmer serverseitig aus der Session zu entfernen.
+`Sessions` wandelt die Liste in `SessionRow`-Komponenten um (`key` = Session-ID). `SessionRow` zeigt ID und Teilnehmerzahl sowie einen Löschen-Button. Beide Komponenten kennen die API nicht, sie melden Klicks über die Props `onJoin` und `onDelete` nach oben.
 
 ### `client/src/components/PokerCard.tsx`
 
-Diese Komponente stellt genau eine auswählbare Pokerkarte dar.
-
-Sie bekommt nur einfache Props:
-
-- `value`: angezeigter Kartenwert,
-- `selected`: ob diese Karte aktuell gewählt ist,
-- `disabled`: ob sie anklickbar ist,
-- `onClick`: Funktion für einen Klick.
-
-Die Komponente kennt weder die Session noch die API. Dadurch bleibt sie klein und leicht verständlich.
+Eine auswählbare Pokerkarte mit den Props `value`, `selected`, `disabled` und `onClick`. Die Komponente kennt weder die Session noch die API.
 
 ### `client/src/components/ParticipantCard.tsx`
 
-Diese Komponente zeigt einen Teilnehmer am Pokertisch.
+Zeigt einen Teilnehmer am Pokertisch. Vor dem Reveal wird nur angezeigt, ob bereits eine Karte gewählt wurde. Nach dem Reveal wird der gewählte Wert angezeigt.
 
-Vor dem Reveal wird nur angezeigt, ob bereits eine Karte gewählt wurde. Der eigentliche Wert bleibt verdeckt.
+### `client/src/components/Input.tsx`
 
-Nach dem Reveal wird der gewählte Wert angezeigt.
+Textfeld aus der Vorlage. Es versteckt das Change-Event: Die Elternkomponente bekommt den Text direkt. Ergänzt um die optionale Prop `id`, damit das Feld mit einem `<label>` verbunden werden kann.
 
-### `client/src/api.ts`
+### `client/src/types/api.ts`
 
-In dieser Datei befinden sich alle HTTP-Aufrufe zum Backend.
+Die Types der Server-Antworten (`DeckId`, `SessionSummary`, `ParticipantView`, `SessionView`). Sie entsprechen den Antwort-Types in `server/src/types.ts`.
 
-Dadurch muss nicht jede React-Komponente selbst lange `fetch()`-Aufrufe enthalten.
+### `client/src/utils/`
 
-Alle Requests gehen an den relativen Pfad `/api`. Der Vite-Proxy leitet sie an den Express-Server auf Port 3000 weiter.
+- `decks.ts`: Karten der beiden Decks (wie im Server) und die Deck-Buttons.
+- `result.ts`: `getResultText()` berechnet die Auswertung nach dem Aufdecken (siehe Abschnitt 9).
+- `username.ts`: Lesen und Schreiben des Namens im `localStorage` (Schlüssel `username`).
 
-Die kleine Hilfsfunktion `request<T>()` prüft, ob der Server mit einem erfolgreichen HTTP-Status antwortet. Bei einem Fehler wird die Meldung aus `{ "error": "..." }` als Fehler geworfen. Antworten mit Status 204 haben keinen Body und werden deshalb nicht als JSON gelesen.
+### Styling
 
-### `client/src/types/index.ts`
-
-Hier liegen die TypeScript-Typen des Frontends:
-
-- `DeckType`
-- `Participant`
-- `Session`
-- `SessionSummary`
-
-Dadurch ist klar definiert, welche Daten das Backend liefert.
-
-### `client/src/index.css`
-
-Diese Datei enthält das gesamte Styling.
-
-Das Layout verwendet Flexbox und CSS Grid. Durch `auto-fit`, `minmax()` und einen Media Query funktioniert die Oberfläche auch auf kleineren Bildschirmen.
+Globale Styles (Reset, Seitenlayout, Formulare, Meldungen) liegen in `index.css`. Styles einzelner Komponenten liegen direkt neben der Komponente (z. B. `PokerCard.css`). Das Layout verwendet Flexbox und CSS Grid. Durch `auto-fit`, `minmax()` und Media Queries funktioniert die Oberfläche auch auf kleinen Bildschirmen.
 
 ## 3. Backend
 
@@ -182,7 +194,7 @@ Trennt zwei Arten von Types:
 - **Domain-Types** (`Participant`, `Session`): So speichert der Server die Daten.
 - **Antwort-Types / DTOs** (`ParticipantView`, `SessionView`, `SessionSummary`, `ErrorResponse`): So sieht der Client die Daten.
 
-`ParticipantView` enthält zusätzlich `hasVoted`. Die Frontend-Types in `client/src/types/index.ts` entsprechen diesen Antwort-Types.
+`ParticipantView` enthält zusätzlich `hasVoted`. Die Frontend-Types in `client/src/types/api.ts` entsprechen diesen Antwort-Types.
 
 ### `server/src/store.ts`
 
@@ -224,19 +236,19 @@ Alle Pfade beginnen mit `/api`.
 | PUT | `/sessions/:sessionId/revealed` | `{ "revealed": true }` / `false` | 200 `SessionView` | 400, 404 |
 | PUT | `/sessions/:sessionId/deck` | `{ "deck": "tshirt" }` | 200 `SessionView` | 400, 404 |
 
-Welche Funktion in `client/src/api.ts` welche Route aufruft:
+Wo das Frontend welche Route aufruft:
 
-| Funktion | Route |
-| --- | --- |
-| `getSessions()` | `GET /api/sessions` |
-| `createSession()` | `POST /api/sessions` |
-| `getSession()` | `GET /api/sessions/:sessionId` |
-| `deleteSession()` | `DELETE /api/sessions/:sessionId` |
-| `joinSession()` | `POST /api/sessions/:sessionId/participants` |
-| `leaveSession()` | `DELETE /api/sessions/:sessionId/participants/:participantId` |
-| `vote()` | `PUT /api/sessions/:sessionId/participants/:participantId/vote` |
-| `reveal()` / `reset()` | `PUT /api/sessions/:sessionId/revealed` mit `true` / `false` |
-| `changeDeck()` | `PUT /api/sessions/:sessionId/deck` |
+| Komponente | Hook | Route |
+| --- | --- | --- |
+| `HomePage` | `useQuery` (Polling) | `GET /api/sessions` |
+| `HomePage` | `useMutation('POST')` | `POST /api/sessions` |
+| `HomePage` | `useMutation('DELETE')` | `DELETE /api/sessions/:sessionId` |
+| `SessionPage` | `request()` im `useEffect` | `POST /api/sessions/:sessionId/participants` |
+| `PokerTable` | `useQuery` (Polling) | `GET /api/sessions/:sessionId` |
+| `PokerTable` | `useMutation('PUT')` | `PUT /api/sessions/:sessionId/participants/:participantId/vote` |
+| `PokerTable` | `useMutation('PUT')` | `PUT /api/sessions/:sessionId/revealed` mit `true` / `false` |
+| `PokerTable` | `useMutation('PUT')` | `PUT /api/sessions/:sessionId/deck` |
+| `PokerTable` | `useMutation('DELETE')` bzw. `fetch` mit `keepalive` | `DELETE /api/sessions/:sessionId/participants/:participantId` |
 
 ## 5. Session erstellen
 
@@ -290,7 +302,7 @@ Solange eine Runde nicht aufgedeckt ist, schickt der Server die Stimmen **nicht*
 
 Ein Teilnehmer mit `hasVoted === true` wird vor dem Reveal nur als `Karte gewählt` dargestellt. Erst wenn `session.revealed === true` ist, liefert der Server `vote` mit und `ParticipantCard` zeigt den tatsächlichen Wert.
 
-Auch die eigene Karte kommt erst nach dem Aufdecken vom Server. Welche Karte man gewählt hat, merkt sich deshalb das Frontend (`myVote` in `SessionPage.tsx`).
+Auch die eigene Karte kommt erst nach dem Aufdecken vom Server. Welche Karte man gewählt hat, merkt sich deshalb das Frontend (`myVote` in `PokerTable.tsx`).
 
 ## 9. Reveal und Auswertung
 
@@ -358,7 +370,7 @@ Ein Wechsel startet immer eine neue, verdeckte Runde, weil die alten Karten nich
 
 Das Frontend verwendet bewusst keine WebSockets.
 
-Stattdessen fragt die Session-Seite alle drei Sekunden den aktuellen Session-Zustand ab.
+Stattdessen fragt der Pokertisch (`PokerTable`) über `useQuery` mit `pollMs` alle drei Sekunden den aktuellen Session-Zustand ab. Die Home-Seite lädt die Session-Liste auf dieselbe Weise.
 
 Das Prinzip ist:
 
@@ -370,7 +382,7 @@ Browser C ---> Server
 
 Jeder Browser erhält dadurch regelmässig den gleichen Session-State.
 
-Beim Unmount wird das Intervall mit `clearInterval()` entfernt.
+Beim Unmount entfernt die Cleanup-Funktion in `useQuery` das Intervall mit `clearInterval()`. Antworten, die nach dem Cleanup noch eintreffen, werden ignoriert.
 
 ## 13. Strategie gegen Karteileichen
 
@@ -380,29 +392,19 @@ Der bereitgestellte Server kennt keinen Heartbeat. Teilnehmer werden nur entfern
 2. Wechsel auf eine andere Seite innerhalb der App (Cleanup-Funktion von `useEffect`).
 3. Schliessen oder Neuladen des Tabs (Event `pagehide`).
 
-Damit der Request beim Schliessen des Tabs noch beim Server ankommt, wird `fetch` mit der Option `keepalive: true` aufgerufen.
+Fall 1 läuft über `useMutation('DELETE')`. Für die Fälle 2 und 3 wird `fetch` direkt mit der Option `keepalive: true` aufgerufen, damit der Request beim Schliessen des Tabs noch beim Server ankommt (`request()` kennt diese Option nicht). Ein `useRef` merkt sich, ob schon verlassen wurde, damit der Request nicht doppelt gesendet wird.
 
 Nach einem Reload tritt der Browser automatisch wieder mit demselben Namen bei. Fällt das Netzwerk komplett aus, kann der Leave-Request nicht gesendet werden. Dieser Fall wird vom Server nicht behandelt.
 
 ## 14. Lade- und Fehlerzustände
 
-Die Home-Seite unterscheidet zwischen:
+Alle Requests laufen über `request()`. Diese Funktion wirft nie, sondern liefert `{ data, error }`. Dadurch kann keine Server-Antwort zu einer unbehandelten Exception oder einem weissen Bildschirm führen.
 
-- initialem Laden,
-- Aktualisieren der Session-Liste,
-- laufenden Aktionen,
-- Fehlern.
-
-Die Session-Seite unterscheidet zwischen:
-
-- Session laden,
-- Synchronisieren,
-- Benutzeraktion ausführen,
-- Fehler.
-
-Wenn der Server nicht erreichbar ist, wirft `api.ts` einen Fehler. Dieser wird in der Oberfläche als Text angezeigt. Die Anwendung soll deshalb nicht mit einem weissen Bildschirm abbrechen.
-
-Auch eine unbekannte Session-ID führt zu einem sichtbaren Fehlerzustand und einem Link zurück zur Startseite.
+- **Laden:** `useQuery` liefert `isLoading` bis zur ersten Antwort (`Sessions werden geladen...`, `Session wird geladen...`). `useMutation` liefert `isLoading` während einer Aktion: Die Buttons sind dann deaktiviert und es erscheint `Aktion wird ausgeführt...`.
+- **Fehler:** Jeder Hook liefert `error`. Die Seiten zeigen den ersten vorhandenen Fehler als Text an (Validierung, Aktion oder Polling).
+- **Server nicht erreichbar:** Das Polling läuft weiter, die letzten Daten bleiben sichtbar und die Meldung `Server not reachable.` erscheint. Sobald der Server wieder antwortet, verschwindet die Meldung.
+- **Unbekannte oder gelöschte Session:** Das Beitreten schlägt mit 404 fehl. Die Seite zeigt `Session nicht verfügbar` mit der Meldung des Servers und einem Link zur Startseite. Wird eine Session gelöscht, während man am Tisch sitzt, zeigt das Polling die Meldung `Session not found.` an.
+- **Ungültige Eingabe:** Leere Namen werden schon im Frontend abgefangen und gemeldet.
 
 ## 15. Single Source of Truth
 
@@ -415,10 +417,10 @@ Dazu gehören:
 - aktives Deck,
 - Reveal-Zustand.
 
-Im Frontend wird die Session als ein Objekt gehalten:
+Im Frontend wird die Session als ein Objekt gehalten, nämlich in `useQuery` im `PokerTable`:
 
 ```ts
-const [session, setSession] = useState<Session | null>(null);
+const sessionQuery = useQuery<SessionView>(sessionUrl, { pollMs: POLL_MS })
 ```
 
 Teilnehmer, Deck und Reveal werden daraus gelesen. Dadurch werden diese Werte nicht mehrfach in verschiedenen States gespeichert.
@@ -548,7 +550,8 @@ Jedes Gruppenmitglied sollte erklären können:
 
 - warum der gemeinsame Session-State auf dem Server liegt,
 - wie `useState` verwendet wird,
-- wie `useEffect` und das Cleanup funktionieren,
+- wie `useEffect` und das Cleanup funktionieren (z. B. in `useQuery`),
+- wie `request`, `useQuery` und `useMutation` zusammenspielen und warum `request()` nie wirft,
 - wie `useParams` die Session-ID liest,
 - wie `useNavigate` die Seite wechselt,
 - wie ein Kartenklick vom React-Event bis zum Express-Server läuft,

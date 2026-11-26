@@ -1,21 +1,22 @@
-interface PokerCardProps {
-  value: string;
-  selected: boolean;
-  disabled: boolean;
-  onClick: () => void;
+import './PokerCard.css'
+
+type Props = {
+  value: string
+  selected: boolean
+  disabled: boolean
+  onClick: () => void
 }
 
-function PokerCard({ value, selected, disabled, onClick }: PokerCardProps) {
+// One selectable card. Knows neither the session nor the API.
+export function PokerCard(props: Props) {
   return (
     <button
-      className={selected ? "poker-card selected" : "poker-card"}
-      disabled={disabled}
-      onClick={onClick}
+      className={props.selected ? 'poker-card selected' : 'poker-card'}
+      disabled={props.disabled}
+      onClick={props.onClick}
       type="button"
     >
-      {value}
+      {props.value}
     </button>
-  );
+  )
 }
-
-export default PokerCard;

@@ -1,0 +1,27 @@
+.session-header,
+.button-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.button-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.result-box {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 2px solid #333;
+  border-radius: 10px;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .session-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

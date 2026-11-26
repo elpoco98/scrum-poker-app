@@ -1,36 +1,32 @@
-import type { Participant } from "../types";
+import type { ParticipantView } from '../types/api'
+import './ParticipantCard.css'
 
-interface ParticipantCardProps {
-  participant: Participant;
-  revealed: boolean;
-  isCurrentUser: boolean;
+type Props = {
+  participant: ParticipantView
+  revealed: boolean
+  isCurrentUser: boolean
 }
 
-function ParticipantCard({
-  participant,
-  revealed,
-  isCurrentUser,
-}: ParticipantCardProps) {
-  let voteText = "Noch nicht abgestimmt";
+// One participant at the poker table.
+export function ParticipantCard(props: Props) {
+  let voteText = 'Noch nicht abgestimmt'
 
-  // Vor dem Reveal schickt der Server keine Stimmen, nur hasVoted.
-  if (participant.hasVoted && !revealed) {
-    voteText = "Karte gewählt";
+  // Before the reveal the server sends no votes, only hasVoted.
+  if (props.participant.hasVoted && !props.revealed) {
+    voteText = 'Karte gewählt'
   }
 
-  if (participant.vote && revealed) {
-    voteText = participant.vote;
+  if (props.participant.vote !== null && props.revealed) {
+    voteText = props.participant.vote
   }
 
   return (
     <article className="participant-card">
       <strong>
-        {participant.name}
-        {isCurrentUser ? " (Du)" : ""}
+        {props.participant.name}
+        {props.isCurrentUser ? ' (Du)' : ''}
       </strong>
       <span>{voteText}</span>
     </article>
-  );
+  )
 }
-
-export default ParticipantCard;

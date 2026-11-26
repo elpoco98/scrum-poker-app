@@ -1,0 +1,17 @@
+.card-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.poker-card {
+  width: 70px;
+  height: 100px;
+  font-size: 1.25rem;
+  font-weight: bold;
+}
+
+.poker-card.selected {
+  border-width: 3px;
+  transform: translateY(-4px);
+}

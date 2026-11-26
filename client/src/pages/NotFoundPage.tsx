@@ -1,6 +1,7 @@
-import { Link } from "react-router-dom";
+import { Link } from 'react-router-dom'
 
-function NotFoundPage() {
+// Fallback route (*) for all unknown URLs.
+export function NotFoundPage() {
   return (
     <main className="page">
       <section className="panel">
@@ -9,7 +10,5 @@ function NotFoundPage() {
         <Link to="/">Zur Startseite</Link>
       </section>
     </main>
-  );
+  )
 }
-
-export default NotFoundPage;

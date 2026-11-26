@@ -1,277 +1,70 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import {
-  changeDeck,
-  getSession,
-  joinSession,
-  leaveSession,
-  reset,
-  reveal,
-  vote,
-} from "../api";
-import ParticipantCard from "../components/ParticipantCard";
-import PokerCard from "../components/PokerCard";
-import type { DeckType, Session } from "../types";
+import { useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { request } from '../api/request'
+import { Input } from '../components/Input'
+import { PokerTable } from '../components/PokerTable'
+import type { ParticipantView } from '../types/api'
+import { loadUsername, saveUsername } from '../utils/username'
 
-// Gleiche Karten wie im Server (server/src/decks.ts). Karten sind immer Texte.
-const fibonacciCards = ["0", "1", "2", "3", "5", "8", "13", "21", "?"];
-const tshirtCards = ["XS", "S", "M", "L", "XL"];
+// Reads the session ID from the URL and joins the session with the stored name.
+// After joining, the PokerTable takes over.
+export function SessionPage() {
+  const { sessionId } = useParams()
 
-function SessionPage() {
-  const { sessionId } = useParams();
-  const navigate = useNavigate();
-  const [name, setName] = useState(() => localStorage.getItem("username")?.trim() ?? "");
-  const [nameInput, setNameInput] = useState(() => localStorage.getItem("username") ?? "");
+  // name: the name used for joining. Empty = ask for a name first
+  // (e.g. a shared link is opened for the first time).
+  const [name, setName] = useState(() => loadUsername().trim())
+  const [nameInput, setNameInput] = useState(loadUsername)
+  const [nameError, setNameError] = useState<string | null>(null)
 
-  const [session, setSession] = useState<Session | null>(null);
-  const [participantId, setParticipantId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Der Server verrät die eigene Stimme erst nach dem Aufdecken.
-  // Welche Karte gewählt wurde, merkt sich deshalb das Frontend.
-  const [myVote, setMyVote] = useState<string | null>(null);
+  const [participantId, setParticipantId] = useState<string | null>(null)
+  const [joinError, setJoinError] = useState<string | null>(null)
 
-  const participantIdRef = useRef<string | null>(null);
-
-  const loadCurrentSession = useCallback(async () => {
-    if (!sessionId) {
-      return;
-    }
-
-    try {
-      setSyncing(true);
-      const data = await getSession(sessionId);
-      setSession(data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Session konnte nicht geladen werden");
-    } finally {
-      setLoading(false);
-      setSyncing(false);
-    }
-  }, [sessionId]);
-
+  // Join as soon as session ID and name are known.
+  // We use request() directly here: useMutation is meant for clicks,
+  // its send function changes on every render and would restart this effect.
   useEffect(() => {
-    if (!sessionId || !name) {
-      setLoading(false);
-      return;
+    if (sessionId === undefined || name === '') {
+      return
     }
+    // Old responses may still arrive after the cleanup. We ignore them.
+    let ignore = false
 
-    let cancelled = false;
-
-    async function startSession(sessionId: string) {
-      try {
-        setLoading(true);
-        setError(null);
-
-        // Der Name ist der Schlüssel: Mit demselben Namen bekommt man denselben Platz zurück.
-        const participant = await joinSession(sessionId, name);
-
-        if (cancelled) {
-          return;
-        }
-
-        participantIdRef.current = participant.id;
-        setParticipantId(participant.id);
-
-        const data = await getSession(sessionId);
-
-        if (!cancelled) {
-          setSession(data);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Beitritt fehlgeschlagen");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+    async function join() {
+      // The name is the key: the same name gets the same seat back.
+      const result = await request<ParticipantView>(
+        'POST',
+        `/api/sessions/${sessionId}/participants`,
+        { name },
+      )
+      if (ignore) {
+        return
       }
+      if (result.error !== null) {
+        setJoinError(result.error)
+        return
+      }
+      setParticipantId(result.data.id)
     }
 
-    void startSession(sessionId);
-
+    join()
     return () => {
-      cancelled = true;
-    };
-  }, [name, sessionId]);
-
-  useEffect(() => {
-    if (!sessionId || !participantId) {
-      return;
+      ignore = true
     }
-
-    const intervalId = window.setInterval(async () => {
-      try {
-        setSyncing(true);
-        const data = await getSession(sessionId);
-        setSession(data);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Synchronisierung fehlgeschlagen");
-      } finally {
-        setSyncing(false);
-      }
-    }, 3000);
-
-    return () => window.clearInterval(intervalId);
-  }, [participantId, sessionId]);
-
-  // Strategie gegen Karteileichen: Beim Verlassen der Seite (Navigation in der App)
-  // und beim Schliessen des Tabs (pagehide) wird der Teilnehmer serverseitig entfernt.
-  useEffect(() => {
-    function leaveQuietly() {
-      if (sessionId && participantIdRef.current) {
-        void leaveSession(sessionId, participantIdRef.current, true).catch(() => undefined);
-        participantIdRef.current = null;
-      }
-    }
-
-    window.addEventListener("pagehide", leaveQuietly);
-
-    return () => {
-      window.removeEventListener("pagehide", leaveQuietly);
-      leaveQuietly();
-    };
-  }, [sessionId]);
-
-  const currentParticipant = session?.participants.find(
-    (participant) => participant.id === participantId
-  );
-
-  // Hat der Server die Stimme gelöscht (neue Runde, Deck-Wechsel), ist auch keine Karte mehr markiert.
-  const selectedVote = currentParticipant?.hasVoted ? myVote : null;
-
-  const cards = session?.deck === "tshirt" ? tshirtCards : fibonacciCards;
-
-  const resultText = useMemo(() => {
-    if (!session?.revealed) {
-      return null;
-    }
-
-    const votes = session.participants
-      .map((participant) => participant.vote)
-      .filter((item): item is string => item !== null);
-
-    if (votes.length === 0) {
-      return "Noch keine Schätzungen vorhanden.";
-    }
-
-    const unanimous =
-      votes.length === session.participants.length &&
-      votes.every((item) => item === votes[0]);
-
-    if (unanimous) {
-      return `Alle sind sich einig: ${votes[0]}`;
-    }
-
-    if (session.deck === "fibonacci") {
-      // "?" ist keine Zahl und fliesst nicht in den Durchschnitt ein.
-      const numbers = votes.filter((item) => item !== "?").map(Number);
-
-      if (numbers.length === 0) {
-        return "Keine numerischen Schätzungen vorhanden.";
-      }
-
-      const average = numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
-      return `Durchschnitt: ${average.toFixed(1)}`;
-    }
-
-    const counts = new Map<string, number>();
-
-    for (const item of votes) {
-      counts.set(item, (counts.get(item) ?? 0) + 1);
-    }
-
-    const mostCommon = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    return `Häufigste Schätzung: ${mostCommon}`;
-  }, [session]);
-
-  async function runAction(action: () => Promise<unknown>) {
-    try {
-      setActionLoading(true);
-      setError(null);
-      await action();
-      await loadCurrentSession();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Aktion fehlgeschlagen");
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
-  async function handleVote(value: string) {
-    if (!sessionId || !participantId) {
-      return;
-    }
-
-    // Klick auf die bereits gewählte Karte nimmt sie zurück (vote: null).
-    const newVote = selectedVote === value ? null : value;
-
-    await runAction(async () => {
-      await vote(sessionId, participantId, newVote);
-      setMyVote(newVote);
-    });
-  }
-
-  async function handleReveal() {
-    if (!sessionId) {
-      return;
-    }
-
-    await runAction(() => reveal(sessionId));
-  }
-
-  async function handleReset() {
-    if (!sessionId) {
-      return;
-    }
-
-    await runAction(() => reset(sessionId));
-  }
-
-  async function handleDeckChange(deck: DeckType) {
-    if (!sessionId) {
-      return;
-    }
-
-    await runAction(() => changeDeck(sessionId, deck));
-  }
-
-  async function handleLeave() {
-    if (!sessionId || !participantId) {
-      navigate("/");
-      return;
-    }
-
-    try {
-      setActionLoading(true);
-      await leaveSession(sessionId, participantId);
-      participantIdRef.current = null;
-      navigate("/");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Verlassen fehlgeschlagen");
-      setActionLoading(false);
-    }
-  }
+  }, [sessionId, name])
 
   function handleDirectJoin() {
-    const trimmedName = nameInput.trim();
-
-    if (!trimmedName) {
-      setError("Bitte gib einen Namen ein.");
-      return;
+    const trimmedName = nameInput.trim()
+    if (trimmedName === '') {
+      setNameError('Bitte gib einen Namen ein.')
+      return
     }
-
-    localStorage.setItem("username", trimmedName);
-    setName(trimmedName);
-    setError(null);
+    saveUsername(trimmedName)
+    setName(trimmedName)
+    setNameError(null)
   }
 
-  if (!name) {
+  if (name === '') {
     return (
       <main className="page">
         <section className="panel">
@@ -279,10 +72,10 @@ function SessionPage() {
           <p>Gib deinen Namen ein, um direkt über diesen Link beizutreten.</p>
 
           <label htmlFor="direct-name">Dein Name</label>
-          <input
+          <Input
             id="direct-name"
             value={nameInput}
-            onChange={(event) => setNameInput(event.target.value)}
+            onChange={setNameInput}
             placeholder="Zum Beispiel Vincent"
           />
 
@@ -290,135 +83,44 @@ function SessionPage() {
             Session beitreten
           </button>
 
-          {error && <p className="error">{error}</p>}
-          <p><Link to="/">Zur Startseite</Link></p>
+          {nameError && <p className="error">{nameError}</p>}
+          <p>
+            <Link to="/">Zur Startseite</Link>
+          </p>
         </section>
       </main>
-    );
+    )
   }
 
-  if (loading) {
+  if (sessionId === undefined || joinError !== null) {
+    return (
+      <main className="page">
+        <section className="panel">
+          <h1>Session nicht verfügbar</h1>
+          <p className="error">
+            {joinError ?? 'Session konnte nicht geladen werden.'}
+          </p>
+          <Link to="/">Zur Startseite</Link>
+        </section>
+      </main>
+    )
+  }
+
+  if (participantId === null) {
     return (
       <main className="page">
         <section className="panel">
           <p>Session wird geladen...</p>
         </section>
       </main>
-    );
-  }
-
-  if (!session) {
-    return (
-      <main className="page">
-        <section className="panel">
-          <h1>Session nicht verfügbar</h1>
-          <p className="error">{error ?? "Session konnte nicht geladen werden."}</p>
-          <Link to="/">Zur Startseite</Link>
-        </section>
-      </main>
-    );
+    )
   }
 
   return (
-    <main className="page">
-      <section className="panel session-header">
-        <div>
-          <h1>Session {session.id}</h1>
-          <p>Angemeldet als {name}</p>
-          {syncing && <span className="status">Synchronisiere...</span>}
-        </div>
-
-        <button
-          className="danger-button"
-          type="button"
-          disabled={actionLoading}
-          onClick={() => void handleLeave()}
-        >
-          Session verlassen
-        </button>
-      </section>
-
-      {error && <p className="error panel">{error}</p>}
-      {actionLoading && <p className="status panel">Aktion wird ausgeführt...</p>}
-
-      <section className="panel">
-        <h2>Deck</h2>
-        <div className="button-row">
-          <button
-            type="button"
-            disabled={actionLoading || session.deck === "fibonacci"}
-            onClick={() => void handleDeckChange("fibonacci")}
-          >
-            Fibonacci
-          </button>
-
-          <button
-            type="button"
-            disabled={actionLoading || session.deck === "tshirt"}
-            onClick={() => void handleDeckChange("tshirt")}
-          >
-            T-Shirt
-          </button>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Teilnehmer</h2>
-        <div className="participant-grid">
-          {session.participants.map((participant) => (
-            <ParticipantCard
-              key={participant.id}
-              participant={participant}
-              revealed={session.revealed}
-              isCurrentUser={participant.id === participantId}
-            />
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Deine Schätzung</h2>
-        <div className="card-grid">
-          {cards.map((value) => (
-            <PokerCard
-              key={value}
-              value={value}
-              selected={selectedVote === value}
-              disabled={actionLoading || session.revealed}
-              onClick={() => void handleVote(value)}
-            />
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Runde</h2>
-        <div className="button-row">
-          <button
-            type="button"
-            disabled={actionLoading || session.revealed}
-            onClick={() => void handleReveal()}
-          >
-            Karten aufdecken
-          </button>
-
-          <button
-            type="button"
-            disabled={actionLoading}
-            onClick={() => void handleReset()}
-          >
-            Runde zurücksetzen
-          </button>
-        </div>
-
-        {session.revealed && resultText && (
-          <div className="result-box">
-            <strong>{resultText}</strong>
-          </div>
-        )}
-      </section>
-    </main>
-  );
+    <PokerTable
+      sessionId={sessionId}
+      participantId={participantId}
+      name={name}
+    />
+  )
 }
-
-export default SessionPage;

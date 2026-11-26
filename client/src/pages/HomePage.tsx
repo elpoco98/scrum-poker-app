@@ -1,163 +1,126 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { createSession, deleteSession, getSessions } from "../api";
-import type { SessionSummary } from "../types";
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Input } from '../components/Input'
+import { Sessions } from '../components/Sessions'
+import { POLL_MS } from '../config'
+import { useMutation } from '../hooks/useMutation'
+import { useQuery } from '../hooks/useQuery'
+import type { SessionSummary, SessionView } from '../types/api'
+import { loadUsername, saveUsername } from '../utils/username'
+import './HomePage.css'
 
-function HomePage() {
-  const navigate = useNavigate();
+// Entry point: enter a name, create a session, join or delete one.
+export function HomePage() {
+  const navigate = useNavigate()
 
-  const [name, setName] = useState(() => localStorage.getItem("username") ?? "");
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Lazy initial value: localStorage is only read on the first render.
+  const [name, setName] = useState(loadUsername)
+  const [validationError, setValidationError] = useState<string | null>(null)
 
-  async function loadSessions(showMainLoading = false) {
-    try {
-      if (showMainLoading) {
-        setLoading(true);
-      } else {
-        setRefreshing(true);
-      }
+  // The list changes all the time, so it is reloaded regularly (polling).
+  const sessionsQuery = useQuery<SessionSummary[]>('/api/sessions', {
+    pollMs: POLL_MS,
+  })
+  const createMutation = useMutation<SessionView>('POST')
+  const deleteMutation = useMutation('DELETE')
 
-      const data = await getSessions();
-      setSessions(data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unbekannter Fehler");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadSessions(true);
-
-    const intervalId = window.setInterval(() => {
-      void loadSessions(false);
-    }, 3000);
-
-    return () => window.clearInterval(intervalId);
-  }, []);
+  const sessions = sessionsQuery.data ?? []
+  const isActionLoading = createMutation.isLoading || deleteMutation.isLoading
+  const error =
+    validationError ??
+    createMutation.error ??
+    deleteMutation.error ??
+    sessionsQuery.error
 
   function handleNameChange(value: string) {
-    setName(value);
-    localStorage.setItem("username", value);
+    setName(value)
+    saveUsername(value)
+    setValidationError(null)
   }
 
   function validateName(): boolean {
-    if (!name.trim()) {
-      setError("Bitte gib zuerst einen Namen ein.");
-      return false;
+    if (name.trim() === '') {
+      setValidationError('Bitte gib zuerst einen Namen ein.')
+      return false
     }
-
-    return true;
+    setValidationError(null)
+    return true
   }
 
   async function handleCreateSession() {
     if (!validateName()) {
-      return;
+      return
     }
-
-    try {
-      setActionLoading(true);
-      setError(null);
-      const session = await createSession();
-      navigate(`/sessions/${session.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Session konnte nicht erstellt werden");
-    } finally {
-      setActionLoading(false);
+    // The server generates the session ID.
+    const result = await createMutation.send('/api/sessions')
+    if (result.error !== null) {
+      return
     }
+    navigate(`/sessions/${result.data.id}`)
   }
 
   function handleJoinSession(sessionId: string) {
     if (!validateName()) {
-      return;
+      return
     }
-
-    navigate(`/sessions/${sessionId}`);
+    navigate(`/sessions/${sessionId}`)
   }
 
   async function handleDeleteSession(sessionId: string) {
-    try {
-      setActionLoading(true);
-      setError(null);
-      await deleteSession(sessionId);
-      await loadSessions(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Session konnte nicht gelöscht werden");
-    } finally {
-      setActionLoading(false);
+    const result = await deleteMutation.send(`/api/sessions/${sessionId}`)
+    if (result.error !== null) {
+      return
     }
+    sessionsQuery.refetch()
   }
 
   return (
     <main className="page">
       <section className="panel">
         <h1>Scrum Poker</h1>
-        <p>Gib deinen Namen ein und erstelle eine Session oder tritt einer offenen Session bei.</p>
+        <p>
+          Gib deinen Namen ein und erstelle eine Session oder tritt einer
+          offenen Session bei.
+        </p>
 
         <label htmlFor="name">Dein Name</label>
-        <input
+        <Input
           id="name"
           value={name}
-          onChange={(event) => handleNameChange(event.target.value)}
+          onChange={handleNameChange}
           placeholder="Zum Beispiel Vincent"
         />
 
         <button
           type="button"
-          disabled={actionLoading}
-          onClick={() => void handleCreateSession()}
+          disabled={isActionLoading}
+          onClick={handleCreateSession}
         >
           Neue Session erstellen
         </button>
 
-        {actionLoading && <p className="status">Aktion wird ausgeführt...</p>}
+        {isActionLoading && <p className="status">Aktion wird ausgeführt...</p>}
         {error && <p className="error">{error}</p>}
       </section>
 
       <section className="panel">
         <div className="section-heading">
           <h2>Offene Sessions</h2>
-          {refreshing && <span className="status">Aktualisiere...</span>}
         </div>
 
-        {loading ? (
+        {sessionsQuery.isLoading ? (
           <p>Sessions werden geladen...</p>
         ) : sessions.length === 0 ? (
           <p>Momentan gibt es keine offenen Sessions.</p>
         ) : (
-          <div className="session-list">
-            {sessions.map((session) => (
-              <div className="session-row" key={session.id}>
-                <button
-                  className="session-link"
-                  type="button"
-                  onClick={() => handleJoinSession(session.id)}
-                >
-                  <strong>{session.id}</strong>
-                  <span>{session.participantCount} Teilnehmer</span>
-                </button>
-
-                <button
-                  className="danger-button"
-                  type="button"
-                  disabled={actionLoading}
-                  onClick={() => void handleDeleteSession(session.id)}
-                >
-                  Löschen
-                </button>
-              </div>
-            ))}
-          </div>
+          <Sessions
+            sessions={sessions}
+            disabled={isActionLoading}
+            onJoin={handleJoinSession}
+            onDelete={handleDeleteSession}
+          />
         )}
       </section>
     </main>
-  );
+  )
 }
-
-export default HomePage;
